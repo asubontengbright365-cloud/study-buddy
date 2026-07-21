@@ -140,7 +140,7 @@ if prompt := st.chat_input("Ask a question about your materials..."):
         message_placeholder = st.empty()
         
         # Initialize Gemini LLM
-        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-001", temperature=0.3)        
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-001", google_api_key=GOOGLE_API_KEY, temperature=0.3)        
         response_text = ""
         citations = []
 
