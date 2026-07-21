@@ -11,3 +11,6 @@ langchain-community
 langchain-google-genai
 langchain-text-splitters
 chromadb
+torchvision
+torch
+pillow
