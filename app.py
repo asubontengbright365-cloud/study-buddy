@@ -12,8 +12,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.prompts import PromptTemplate
 
-from dotenv import load_dotenv
-load_dotenv()
+GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="NotebookLM Clone", layout="wide")
