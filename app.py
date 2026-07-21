@@ -1,17 +1,14 @@
 import streamlit as st
 import os
-from io import BytesIO
-from PyPDF2 import PdfReader
-from docx import Document
-from youtube_transcript_api import YouTubeTranscriptApi
-from urllib.parse import urlparse, parse_qs
-
+import tempfile
+from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_community.vectorstores import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.prompts import PromptTemplate
-
+from langchain.prompts import PromptTemplate
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
+from youtube_transcript_api import YouTubeTranscriptApi
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 
 # --- CONFIGURATION ---
@@ -49,50 +46,54 @@ def extract_youtube_transcript(url):
         return f"Error fetching transcript: {str(e)}"
 
 # --- HELPER FUNCTIONS: RAG ENGINE ---
-def process_documents(files, yt_url):
-    texts = []
+def process_documents(uploaded_files, youtube_url):
+    docs = []
+    sources = []
     
     # Process uploaded files
-    if files:
-        for file in files:
-            content = ""
-            if file.name.endswith(".pdf"):
-                content = extract_text_from_pdf(file)
-            elif file.name.endswith(".docx"):
-                content = extract_text_from_docx(file)
-            elif file.name.endswith(".txt"):
-                content = file.getvalue().decode("utf-8")
-            
-            texts.append({"text": content, "source": file.name})
-            if file.name not in st.session_state.sources:
-                st.session_state.sources.append(file.name)
-
-    # Process YouTube URL
-    if yt_url:
-        content = extract_youtube_transcript(yt_url)
-        texts.append({"text": content, "source": yt_url})
-        if yt_url not in st.session_state.sources:
-            st.session_state.sources.append("YouTube: " + yt_url)
-
-    if not texts:
+    for file in uploaded_files:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file.name) as tmp:
+            tmp.write(file.getvalue())
+            tmp_path = tmp.name
+        
+        if file.name.endswith('.pdf'):
+            loader = PyPDFLoader(tmp_path)
+        elif file.name.endswith('.docx'):
+            loader = Docx2txtLoader(tmp_path)
+        else:
+            loader = TextLoader(tmp_path)
+        
+        docs.extend(loader.load())
+        sources.append(file.name)
+        os.remove(tmp_path)
+    
+    # Process YouTube
+    if youtube_url:
+        try:
+            video_id = youtube_url.split("v=")[1].split("&")[0]
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+            text = " ".join([t['text'] for t in transcript])
+            from langchain.schema import Document
+            docs.append(Document(page_content=text, metadata={"source": youtube_url}))
+            sources.append(youtube_url)
+        except Exception as e:
+            st.error(f"Could not get YouTube transcript: {e}")
+    
+    if not docs:
         return None
-
-    # Chunking & Embedding
+    
+    # Split text
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = []
-    metadatas = []
+    splits = text_splitter.split_documents(docs)
     
-    for item in texts:
-        splits = text_splitter.split_text(item["text"])
-        chunks.extend(splits)
-        metadatas.extend([{"source": item["source"]} for _ in splits])
-
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001") 
-# Note: if that gives you any grief, "gemini-embedding-2" also works on the newest SDK!
+    # Use Google embeddings instead of sentence-transformers
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
     
-    # Create in-memory Chroma database
-    vector_store = Chroma.from_texts(texts=chunks, embedding=embeddings, metadatas=metadatas)
-    return vector_store
+    # Create FAISS vector store
+    vectorstore = FAISS.from_documents(splits, embeddings)
+    
+    st.session_state.sources = sources
+    return vectorstore
 
 # --- UI: SIDEBAR (Source Panel) ---
 with st.sidebar:
