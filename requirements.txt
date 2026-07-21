@@ -1,5 +1,4 @@
 streamlit
-google-generativeai
 python-dotenv
 pyPDF2
 python-docx
@@ -14,3 +13,5 @@ chromadb
 torchvision
 torch
 pillow
+protobuf==4.25.3
+google-generativeai
